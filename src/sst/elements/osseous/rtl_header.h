@@ -10,12 +10,14 @@
 #include <sstream> 
 #include <inttypes.h>
 #include <string.h>
+#include "rtl_header_parent.h"
 
 namespace SST{
 #define UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
 
 
-typedef struct Rtlheader {
+class Rtlheader: public mRtlComponentParent {
+  public:
   UInt<8> _T;
   UInt<1> clock;
   UInt<1> reset;
@@ -90,6 +92,6 @@ typedef struct Rtlheader {
       printf("\nio_tot: %s", str.str().c_str());
     }
   }
-} Rtlheader;
+}
 }
 #endif  // COUNTER_H_

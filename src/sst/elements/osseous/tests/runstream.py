@@ -29,18 +29,59 @@ ariel.addParams({
 
 memmgr = ariel.setSubComponent("memmgr", "ariel.MemoryManagerSimple")
 
+ariel1 = sst.Component("A01", "ariel.ariel")
+ariel1.addParams({
+        "verbose" : "1",
+        "maxcorequeue" : "256",
+        "maxissuepercycle" : "2",
+        "pipetimeout" : "0",
+        "executable" : app,
+        "arielmode" : "1",
+        "clock" : "1GHz",
+        "arielinterceptcalls" : "1",
+        "launchparamcount" : 1,
+        "writepayloadtrace" : 1,
+        "launchparam0" : "-ifeellucky",
+        })
+
+memmgr1 = ariel1.setSubComponent("memmgr1", "ariel.MemoryManagerSimple")
+
 corecount = 1;
 
 rtl = sst.Component("rtlaximodel", "rtlcomponent.Rtlmodel")
 rtl.addParams({
         "ExecFreq" : "1GHz",
-        "maxCycles" : "100"
+        "maxCycles" : "100",
+        "rtlheader" : "0"
 	})
 
 rtlmemmgr = rtl.setSubComponent("memmgr", "rtlaximodel.MemoryManagerSimple")
 
+rtl1 = sst.Component("rtlaximodel1", "rtlcomponent.Rtlmodel")
+rtl1.addParams({
+        "ExecFreq" : "1GHz",
+        "maxCycles" : "100",
+        "rtlheader" : "1"
+	})
+
+rtlmemmgr1 = rtl1.setSubComponent("memmgr1", "rtlaximodel.MemoryManagerSimple")
+
 l1cpucache = sst.Component("l1cpucache", "memHierarchy.Cache")
 l1cpucache.addParams({
+        "cache_frequency" : "1GHz",
+        "cache_size" : "64 KB",
+        "cache_type" : "inclusive",
+        "coherence_protocol" : "MSI",
+        "replacement_policy" : "lru",
+        "associativity" : "8",
+        "access_latency_cycles" : "6",
+        "cache_line_size" : "64",
+        "L1" : "1",
+        "debug" : "0",
+})
+
+l1cpucache1 = sst.Component("l1cpucache1", "memHierarchy.Cache")
+l1cpucache1.addParams({
         "cache_frequency" : "1GHz",
         "cache_size" : "64 KB",
         "cache_type" : "inclusive",
@@ -67,6 +108,20 @@ l1rtlcache.addParams({
         "debug" : "0",
 })
 
+l1rtlcache1 = sst.Component("l1rtlcache1", "memHierarchy.Cache")
+l1rtlcache1.addParams({
+        "cache_frequency" : "1GHz",
+        "cache_size" : "64 KB",
+        "cache_type" : "inclusive",
+        "coherence_protocol" : "MSI",
+        "replacement_policy" : "lru",
+        "associativity" : "8",
+        "access_latency_cycles" : "6",
+        "cache_line_size" : "64",
+        "L1" : "1",
+        "debug" : "0",
+})
+
 # Bus between private L1s and L2
 membus = sst.Component("membus", "memHierarchy.Bus")
 membus.addParams( { "bus_frequency" : clock,
@@ -74,17 +129,35 @@ membus.addParams( { "bus_frequency" : clock,
                     "debug_level" : 10
 } )
 
+#membus1 = sst.Component("membus1", "memHierarchy.Bus")
+#membus1.addParams( { "bus_frequency" : clock,
+#                    "debug" : 2,
+#                    "debug_level" : 10
+#} )
+
 cpu_cache_link = sst.Link("cpu_cache_link")
 cpu_cache_link.connect( (ariel, "cache_link_0", "50ps"), (l1cpucache, "high_network_0", "50ps") )
+
+cpu_cache_link1 = sst.Link("cpu_cache_link1")
+cpu_cache_link1.connect( (ariel1, "cache_link_0", "50ps"), (l1cpucache1, "high_network_0", "50ps") )
 
 rtl_cache_link = sst.Link("rtl_cache_link")
 rtl_cache_link.connect( (rtl, "RtlCacheLink", "50ps"), (l1rtlcache, "high_network_0", "50ps") )
 
+rtl_cache_link1 = sst.Link("rtl_cache_link1")
+rtl_cache_link1.connect( (rtl1, "RtlCacheLink", "50ps"), (l1rtlcache1, "high_network_0", "50ps") )
+
 l1cpu_bus_link = sst.Link("l1cpu_bus_link")
 l1cpu_bus_link.connect( (l1cpucache, "low_network_0", "50ps"), (membus, "high_network_0", "50ps") )
 
+l1cpu_bus_link1 = sst.Link("l1cpu_bus_link1")
+l1cpu_bus_link1.connect( (l1cpucache1, "low_network_0", "50ps"), (membus, "high_network_2", "50ps") )
+
 l1rtl_bus_link = sst.Link("l1rtl_bus_link")
 l1rtl_bus_link.connect( (l1rtlcache, "low_network_0", "50ps"), (membus, "high_network_1", "50ps") )
+
+l1rtl_bus_link1 = sst.Link("l1rtl_bus_link1")
+l1rtl_bus_link1.connect( (l1rtlcache1, "low_network_0", "50ps"), (membus, "high_network_3", "50ps") )
 
 # Shared L2
 # 1MB*cores, 16-way set associative, 64B line, 15 cycle access
@@ -100,13 +173,32 @@ l2.addParams( {
     "coherence_protocol" : "MSI"
 } )
 
+#l21 = sst.Component("l2cache1", "memHierarchy.Cache")
+#l21.addParams( {
+#    "cache_frequency" : clock,
+#    "access_latency_cycles" : 15,
+#    "cache_size" : str(corecount) + "MB",   # 1MB/core
+#    "associativity" : 16,
+#    "cache_line_size" : 64,
+#    "replacement_policy" : "nmru",
+#    "coherence_protocol" : "MSI"
+#} )
+
 l2_bus_link = sst.Link("l2_bus_link")
 l2_bus_link.connect( (l2, "high_network_0", "50ps"), (membus, "low_network_0", "50ps") )
+
+#l2_bus_link1 = sst.Link("l2_bus_link1")
+#l2_bus_link1.connect( (l21, "high_network_0", "50ps"), (membus1, "low_network_0", "50ps") )
 
 memctrl = sst.Component("memory", "memHierarchy.MemController")
 memctrl.addParams({
         "clock" : "1GHz",
 })
+
+#memctrl1 = sst.Component("memory1", "memHierarchy.MemController")
+#memctrl1.addParams({
+#        "clock" : "1GHz",
+#})
 
 memory = memctrl.setSubComponent("backend", "memHierarchy.simpleMem")
 memory.addParams({
@@ -114,11 +206,23 @@ memory.addParams({
         "mem_size" : "2048MiB",
 })
 
+#memory1 = memctrl1.setSubComponent("backend1", "memHierarchy.simpleMem")
+#memory1.addParams({
+#        "access_time" : "10ns",
+#        "mem_size" : "2048MiB",
+#})
+
 cpu_rtl_link = sst.Link("cpu_rtl_link")
 cpu_rtl_link.connect( (ariel, "rtl_link_0", "50ps"), (rtl, "ArielRtllink", "50ps") )
 
+cpu_rtl_link1 = sst.Link("cpu_rtl_link1")
+cpu_rtl_link1.connect( (ariel1, "rtl_link_0", "50ps"), (rtl1, "ArielRtllink", "50ps") )
+
 memory_link = sst.Link("mem_bus_link")
 memory_link.connect( (l2, "low_network_0", "50ps"), (memctrl, "direct_link", "50ps") )
+
+#memory_link1 = sst.Link("mem_bus_link1")
+#memory_link1.connect( (l21, "low_network_0", "50ps"), (memctrl1, "direct_link", "50ps") )
 
 # Set the Statistic Load Level; Statistics with Enable Levels (set in
 # elementInfoStatistic) lower or equal to the load can be enabled (default = 0)
@@ -142,6 +246,14 @@ ariel.enableStatistics([
       "write_requests"
 ])
 
+#ariel1.enableStatistics([
+#      "cycles",
+#      "active_cycles",
+#      "instruction_count",
+#      "read_requests",
+#      "write_requests"
+#])
+
 l1cpucache.enableStatistics([
       #"CacheHits",
       "latency_GetS_hit",
@@ -152,3 +264,14 @@ l1cpucache.enableStatistics([
       "GetSHit_Blocked",
       "CacheMisses"
 ])
+
+#l1cpucache1.enableStatistics([
+#      #"CacheHits",
+#      "latency_GetS_hit",
+#      "latency_GetX_hit",
+#      "latency_GetS_miss",
+#      "latency_GetX_miss",
+#      "GetSHit_Arrival",
+#      "GetSHit_Blocked",
+#      "CacheMisses"
+#])

@@ -7,6 +7,7 @@
 #include <uint.h>
 #include <sint.h>
 #include <string.h>
+#include "rtl_header_parent.h"
 #define UNLIKELY(condition) __builtin_expect(static_cast<bool>(condition), 0)
 
 extern int m1300;
@@ -282,7 +283,8 @@ typedef struct MemArbiter {
   }
 } MemArbiter;
 
-typedef struct Rtlheader {
+class Rtlheader: public mRtlComponentParent {
+  public:
   FILE *RiscvMiniOut;
   UInt<1> clock;
   UInt<1> reset;
@@ -8696,6 +8698,6 @@ typedef struct Rtlheader {
     if (PARTflags[35]) EVAL_35();
     regs_set = true;
   }
-} Rtlheader;
+};
 
 #endif  // TILE_H_

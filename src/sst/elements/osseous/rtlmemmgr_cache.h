@@ -87,7 +87,7 @@ class RtlMemoryManagerCache : public RtlMemoryManager{
         std::unordered_map<uint64_t, uint64_t> translationCache;
         uint32_t translationCacheEntries;
         bool translationEnabled;
-
+        
         void cacheTranslation(uint64_t virtualA, uint64_t physicalA) {
             // Remove the oldest entry if we do not have enough slots TODO is begin() really the oldest...?
             if(translationCache.size() == translationCacheEntries) {

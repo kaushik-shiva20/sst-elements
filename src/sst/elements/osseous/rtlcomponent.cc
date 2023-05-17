@@ -25,12 +25,24 @@ using namespace std;
 using namespace SST::RtlComponent;
 using namespace SST::Interfaces;
 
-int m1300 = 0;
 Rtlmodel::Rtlmodel(SST::ComponentId_t id, SST::Params& params) :
 	SST::Component(id)/*, verbosity(static_cast<uint32_t>(out->getVerboseLevel()))*/ {
 
     bool found;
-    dut = new Rtlheader;
+    
+    rtlheaderID = params.find<int>("rtlheader", 0 , found);
+    if(rtlheaderID == 1)
+    {
+        mBaseAddr = (1u << 32u);
+        dut = new Rtlheader1;  
+        ((Rtlheader1 *)dut)->RiscvMiniOut = fopen("RiscvMiniOut1.txt", "w");
+    }else
+    {
+        mBaseAddr = 0u;
+        dut = new Rtlheader;  
+        ((Rtlheader *)dut)->RiscvMiniOut = fopen("RiscvMiniOut.txt", "w");
+    }
+
     axiport = new AXITop;
     RtlAckEv = new ArielComponent::ArielRtlEvent();
 	output.init("Rtlmodel-" + getName() + "-> ", 1, 0, SST::Output::STDOUT);
@@ -114,8 +126,11 @@ Rtlmodel::Rtlmodel(SST::ComponentId_t id, SST::Params& params) :
 
 
    // Tell SST to wait until we authorize it to exit
-   registerAsPrimaryComponent();
-   primaryComponentDoNotEndSim();
+   if(rtlheaderID == 0)
+   {
+    registerAsPrimaryComponent();
+    primaryComponentDoNotEndSim();
+   }
 
    sst_assert(ArielRtlLink, CALL_INFO, -1, "ArielRtlLink is null");
 
@@ -134,6 +149,19 @@ Rtlmodel::Rtlmodel(SST::ComponentId_t id, SST::Params& params) :
 
     mCycles=0;
 
+ //   isPageTableReceived = false;
+    isFirst = true;
+    in_temp_inp_size = 11000;
+    in_temp_count=0;
+
+    temp_inp_size = 11000;
+    temp_count=0;
+
+    mcnt = 0;
+    mcnt1 = 0;
+    main_time = 0;
+
+
 }
 
 Rtlmodel::~Rtlmodel() {
@@ -145,7 +173,11 @@ Rtlmodel::~Rtlmodel() {
 }
 
 void Rtlmodel::setup() {
-    dut->reset = UInt<1>(1);
+    if(rtlheaderID == 1)
+        ((Rtlheader1 *)dut)->reset = UInt<1>(1);
+    else
+        ((Rtlheader *)dut)->reset = UInt<1>(1);
+
     axiport->reset = UInt<1>(1);
 	output.verbose(CALL_INFO, 1, 0, "Component is being setup.\n");
     for(int i = 0; i < 512; i++)
@@ -283,7 +315,7 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
     //char *bin_ptr;
     //static int in_temp_inp_size = 0;
     //static int temp_inp_size = 0;
-    m1300=0;
+
     if(!isLoaded)
     {
         isLoaded = true;
@@ -310,8 +342,6 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
         printf("Num bytes in bin: %d", num_bytes);
     }
 
-    static int in_temp_inp_size = 11000;
-    static int in_temp_count=0;
     //static bool isRead=false;
     if(isWritten /*&& isRespReceived*//*&& canStartRead*/)
     {
@@ -328,7 +358,7 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
                     in_temp_size = in_temp_inp_size;
                 }
                 //char * temp_ptr = (char *)tempptr;
-                RtlReadEvent* rtlrev_inp_ptr = new RtlReadEvent((uint64_t)&bin_ptr[in_temp_count],(uint32_t)in_temp_size);
+                RtlReadEvent* rtlrev_inp_ptr = new RtlReadEvent((mBaseAddr + (uint64_t)&bin_ptr[in_temp_count]),(uint32_t)in_temp_size);
                 isRespReceived = false;
                 generateReadRequest(false, rtlrev_inp_ptr);
                 in_temp_inp_size -= in_temp_size;
@@ -341,8 +371,6 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
         }
     }
 
-    static int temp_inp_size = 11000;
-    static int temp_count=0;
     if(!isWritten /*&& isRespReceived*/)
     {
         if(temp_inp_size > 0)
@@ -356,7 +384,7 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
                 temp_size = temp_inp_size;
             }
             //char * temp_ptr = (char *)tempptr;
-            RtlWriteEvent* rtlrev_inp_ptr = new RtlWriteEvent((uint64_t)(&bin_ptr[temp_count]),(uint32_t)temp_size,&bin_ptr[temp_count]); 
+            RtlWriteEvent* rtlrev_inp_ptr = new RtlWriteEvent((mBaseAddr + (uint64_t)(&bin_ptr[temp_count])),(uint32_t)temp_size,&bin_ptr[temp_count]); 
             //VA_VA_map.insert({(uint64_t)(bin_ptr+temp_count), (uint64_t)&tempptr[temp_count]});
             isRespReceived = false;
             generateWriteRequest(rtlrev_inp_ptr);
@@ -374,30 +402,46 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
     //VA_VA_map.insert({(uint64_t)(&bin_ptr[0]), (uint64_t)&tempptr[0]});
     //generateWriteRequest(rtlrev_inp_ptr);
 
-
+    static bool isEnd = false;
+    static bool isEnd1 = false;
     if(isWritten && isRead)
     {
-        static int mcnt = 0;
-        static int mcnt1 = 0;
-        static uint64_t main_time = 0;
+
         //cout << "Enabling waves..." << endl;
         
         //cout << "Starting simulation!" << endl;
+        uint64_t tmp_io_host_tohost;
+         if(rtlheaderID == 1)
+            tmp_io_host_tohost = ((Rtlheader1 *)dut)->io_host_tohost.as_single_word();
+         else
+            tmp_io_host_tohost = ((Rtlheader *)dut)->io_host_tohost.as_single_word();
         if(mcnt < 5)
         {
             if(mcnt==0)
             {
-                dut->reset = UInt<1>(1);
+                if(rtlheaderID == 1)
+                    ((Rtlheader1 *)dut)->reset = UInt<1>(1);
+                else
+                    ((Rtlheader *)dut)->reset = UInt<1>(1);
             }
             cpu_mem_tick(true, false); 
             mcnt++;
             if(mcnt==5)
             {
-                dut->reset = UInt<1>(0);
-                dut->io_host_fromhost_bits = UInt<32>(0);
-                dut->io_host_fromhost_valid = UInt<1>(0);
+                if(rtlheaderID == 1)
+                {
+                    ((Rtlheader1 *)dut)->reset = UInt<1>(0);
+                    ((Rtlheader1 *)dut)->io_host_fromhost_bits = UInt<32>(0);
+                    ((Rtlheader1 *)dut)->io_host_fromhost_valid = UInt<1>(0);
+                }
+                else
+                {
+                    ((Rtlheader *)dut)->reset = UInt<1>(0);
+                    ((Rtlheader *)dut)->io_host_fromhost_bits = UInt<32>(0);
+                    ((Rtlheader *)dut)->io_host_fromhost_valid = UInt<1>(0);
+                }
             }
-        }else if(!dut->io_host_tohost.as_single_word() && main_time < 50000000L)
+        }else if(!tmp_io_host_tohost && main_time < 50000000L)
         {
             //cout << "while" <<endl;
             cpu_mem_tick(true,true);
@@ -409,14 +453,25 @@ bool Rtlmodel::clockTick( SST::Cycle_t currentCycle ) {
             mcnt1++;
         }else
         {
-            fprintf(dut->RiscvMiniOut,"\n\nIPC: %f\n",25381/(float)mCycles);
-            primaryComponentOKToEndSim();
+            if(rtlheaderID == 1)
+                fprintf(((Rtlheader1 *)dut)->RiscvMiniOut,"\n\nIPC: %f\n",25381/(float)mCycles);
+            else
+                fprintf(((Rtlheader *)dut)->RiscvMiniOut,"\n\nIPC: %f\n",25381/(float)mCycles);
+            
+            if(rtlheaderID == 1)
+                isEnd1 = true;
+            else
+                isEnd = true;
+            
+            if(isEnd && isEnd1 && (rtlheaderID == 0))
+                primaryComponentOKToEndSim();
+
             return true;
         }
     }
     /*
     if(!isStalled) {
-        dut->eval(ev.update_registers, ev.verbose, ev.done_reset);
+        ((Rtlheader *)dut)->eval(ev.update_registers, ev.verbose, ev.done_reset);
         tickCount++;
     }
     
@@ -453,12 +508,33 @@ void Rtlmodel::handleArielEvent(SST::Event *event) {
 
     output.verbose(CALL_INFO, 1, 0, "\nVecshiftReg RTL Event handle called \n");
 
-    static bool isPageTableReceived = false;
+    static std::unordered_map<uint64_t, uint64_t> *tmp_pagetable;
+    static std::deque<uint64_t>* tmp_freepages;
+    static uint64_t tmp_pagesize;
+    static std::unordered_map<uint64_t, uint64_t> *tmp_Cache;
+    static uint32_t *tmp_CacheEntries;
+    static bool tmp_Enabled;
+
+    static bool isPageTableReceived =false;
     if(!isPageTableReceived)
     {
+        tmp_pagetable = ariel_ev->RtlData.pageTable;
+        tmp_freepages = ariel_ev->RtlData.freePages;
+        tmp_pagesize = ariel_ev->RtlData.pageSize;
+        tmp_Cache = ariel_ev->RtlData.translationCache;
+        tmp_CacheEntries = ariel_ev->RtlData.translationCacheEntries;
+        tmp_Enabled =  ariel_ev->RtlData.translationEnabled;
+
         isPageTableReceived = true;
         memmgr->AssignRtlMemoryManagerSimple(*ariel_ev->RtlData.pageTable, ariel_ev->RtlData.freePages, ariel_ev->RtlData.pageSize);
         memmgr->AssignRtlMemoryManagerCache(*ariel_ev->RtlData.translationCache, ariel_ev->RtlData.translationCacheEntries, ariel_ev->RtlData.translationEnabled);
+    }else
+    {
+        tmp_Cache = new std::unordered_map<uint64_t, uint64_t>;
+        tmp_CacheEntries = (uint32_t *)calloc(4096,sizeof(uint32_t));
+
+        memmgr->AssignRtlMemoryManagerSimple(*tmp_pagetable, tmp_freepages, tmp_pagesize);
+        memmgr->AssignRtlMemoryManagerCache(*tmp_Cache, tmp_CacheEntries, true);
     }
     //Update all the virtual address pointers in RTLEvent class
     updated_rtl_params = ariel_ev->get_updated_rtl_params();
@@ -486,7 +562,6 @@ void Rtlmodel::handleArielEvent(SST::Event *event) {
     }
 
     //Initiating the read request from memHierarchy
-    static bool isFirst = true;
     if(isFirst)
     {
         //isFirst = false;
@@ -553,7 +628,7 @@ void Rtlmodel::handleMemEvent(StandardMem::Request* event) {
             setDataAddress((uint8_t*)DataAddress->second);
         else
         {
-            uint64_t temp = (uint64_t)read->vAddr - (uint64_t)&bin_ptr[0];
+            uint64_t temp = (uint64_t)read->vAddr - (uint64_t)&bin_ptr[0] - mBaseAddr;
             if((temp >= 0) && (temp < 11000)) 
             {
                 setDataAddress((uint8_t *)(&tempptr[temp]));
@@ -573,7 +648,7 @@ void Rtlmodel::handleMemEvent(StandardMem::Request* event) {
                 getDataAddress()[i] = read->data[i]; 
         }else
         {
-            output.verbose(CALL_INFO, 1, 0, "Error: Data size is greater than cacheLineSize");
+            //output.verbose(CALL_INFO, 1, 0, "Error: Data size is greater than cacheLineSize");
         }
         if(read->vAddr == (uint64_t)updated_rtl_params) {
             bool* ptr = (bool*)getBaseDataAddress();
@@ -612,7 +687,7 @@ void Rtlmodel::handleMemEvent(StandardMem::Request* event) {
         {
             std::vector<char> temp;
             //char *mptr = (char *)read->vAddr;
-            uint64_t mBase = read->vAddr - (uint64_t)bin_ptr;
+            uint64_t mBase = read->vAddr - (uint64_t)bin_ptr - mBaseAddr;
             for(int i = 0; i < read->data.size(); i++)
                 temp.push_back(read->data[i]);//(bin_ptr[mBase + i]);
             rresp.push(mm_rresp_t(curr_ar_id, temp, AXIReadPendingTransactions->size() == 0));
@@ -623,8 +698,8 @@ void Rtlmodel::handleMemEvent(StandardMem::Request* event) {
         }   
     } 
     
-    else 
-        output.fatal(CALL_INFO, -4, "Memory event response to VecShiftReg was not found in pending list.\n");
+    //else 
+    //    output.fatal(CALL_INFO, -4, "Memory event response to VecShiftReg was not found in pending list.\n");
         
     delete event;
 }
@@ -887,7 +962,7 @@ void Rtlmodel::AXI_tick( bool reset,
 void Rtlmodel::AXI_write(uint64_t addr, char *data) {
   addr %= this->size;
 
-  char* base = bin_ptr + addr;
+  char* base = bin_ptr + addr + mBaseAddr;
   memcpy(base, data, word_size);
 }
 
@@ -896,7 +971,7 @@ void Rtlmodel::AXI_write(uint64_t addr, char *data, uint64_t strb, uint64_t size
   strb &= ((1L << size) - 1) << (addr % word_size);
   addr %= this->size;
 
-  char *base = bin_ptr + addr;
+  char *base = bin_ptr + addr + mBaseAddr;
   for (int i = 0; i < word_size; i++) {
     //if (strb & 1) base[i] = data[i];
     //strb >>= 1;
@@ -916,7 +991,7 @@ void Rtlmodel::AXI_read(uint64_t addr)
     
   addr %= this->size;
 
-  char *base = bin_ptr + addr;
+  char *base = bin_ptr + addr + mBaseAddr;
   RtlReadEvent* axi_readev_ptr = new RtlReadEvent((uint64_t)base,(uint32_t)word_size);
   generateReadRequest(true, axi_readev_ptr);
   //return std::vector<char>(base, base + word_size);
@@ -924,37 +999,78 @@ void Rtlmodel::AXI_read(uint64_t addr)
 
 void Rtlmodel::cpu_mem_tick(bool verbose, bool done_reset)
 {
-  dut->io_nasti_aw_ready = UInt<1>(AXI_aw_ready());
-  dut->io_nasti_ar_ready = UInt<1>(AXI_ar_ready());
-  dut->io_nasti_w_ready = UInt<1>(AXI_w_ready());
-  dut->io_nasti_b_valid = UInt<1>(AXI_b_valid());
-  dut->io_nasti_b_bits_id = UInt<5>(AXI_b_id());
-  dut->io_nasti_b_bits_resp = UInt<2>(AXI_b_resp());
-  dut->io_nasti_r_valid = UInt<1>(AXI_r_valid());
-  dut->io_nasti_r_bits_id = UInt<5>(AXI_r_id());
-  dut->io_nasti_r_bits_resp = UInt<2>(AXI_r_resp());
-  dut->io_nasti_r_bits_last = UInt<1>(AXI_r_last());
-  memcpy(&dut->io_nasti_r_bits_data, AXI_r_data(), 8);
-
+  if(rtlheaderID == 1)
+  {
+    ((Rtlheader1 *)dut)->io_nasti_aw_ready = UInt<1>(AXI_aw_ready());
+    ((Rtlheader1 *)dut)->io_nasti_ar_ready = UInt<1>(AXI_ar_ready());
+    ((Rtlheader1 *)dut)->io_nasti_w_ready = UInt<1>(AXI_w_ready());
+    ((Rtlheader1 *)dut)->io_nasti_b_valid = UInt<1>(AXI_b_valid());
+    ((Rtlheader1 *)dut)->io_nasti_b_bits_id = UInt<5>(AXI_b_id());
+    ((Rtlheader1 *)dut)->io_nasti_b_bits_resp = UInt<2>(AXI_b_resp());
+    ((Rtlheader1 *)dut)->io_nasti_r_valid = UInt<1>(AXI_r_valid());
+    ((Rtlheader1 *)dut)->io_nasti_r_bits_id = UInt<5>(AXI_r_id());
+    ((Rtlheader1 *)dut)->io_nasti_r_bits_resp = UInt<2>(AXI_r_resp());
+    ((Rtlheader1 *)dut)->io_nasti_r_bits_last = UInt<1>(AXI_r_last());
+    memcpy(&((Rtlheader1 *)dut)->io_nasti_r_bits_data, AXI_r_data(), 8);
+  }
+  else
+  {
+    ((Rtlheader *)dut)->io_nasti_aw_ready = UInt<1>(AXI_aw_ready());
+    ((Rtlheader *)dut)->io_nasti_ar_ready = UInt<1>(AXI_ar_ready());
+    ((Rtlheader *)dut)->io_nasti_w_ready = UInt<1>(AXI_w_ready());
+    ((Rtlheader *)dut)->io_nasti_b_valid = UInt<1>(AXI_b_valid());
+    ((Rtlheader *)dut)->io_nasti_b_bits_id = UInt<5>(AXI_b_id());
+    ((Rtlheader *)dut)->io_nasti_b_bits_resp = UInt<2>(AXI_b_resp());
+    ((Rtlheader *)dut)->io_nasti_r_valid = UInt<1>(AXI_r_valid());
+    ((Rtlheader *)dut)->io_nasti_r_bits_id = UInt<5>(AXI_r_id());
+    ((Rtlheader *)dut)->io_nasti_r_bits_resp = UInt<2>(AXI_r_resp());
+    ((Rtlheader *)dut)->io_nasti_r_bits_last = UInt<1>(AXI_r_last());
+    memcpy(&((Rtlheader *)dut)->io_nasti_r_bits_data, AXI_r_data(), 8);
+  }
   dut->eval(true, verbose, done_reset);
 
-    AXI_tick(
-    dut->reset, 
-    dut->io_nasti_ar_valid, 
-    dut->io_nasti_ar_bits_addr.as_single_word(), 
-    dut->io_nasti_ar_bits_id.as_single_word(), 
-    dut->io_nasti_ar_bits_size.as_single_word(), 
-    dut->io_nasti_ar_bits_len.as_single_word(), 
-    dut->io_nasti_aw_valid, 
-    dut->io_nasti_aw_bits_addr.as_single_word(), 
-    dut->io_nasti_aw_bits_id.as_single_word(), 
-    dut->io_nasti_aw_bits_size.as_single_word(), 
-    dut->io_nasti_aw_bits_len.as_single_word(), 
-    dut->io_nasti_w_valid, 
-    dut->io_nasti_w_bits_strb.as_single_word(), 
-    &dut->io_nasti_w_bits_data, 
-    dut->io_nasti_w_bits_last, 
-    dut->io_nasti_r_ready, 
-    dut->io_nasti_b_ready 
-  );
+    if(rtlheaderID == 1)
+    {
+        AXI_tick(
+        ((Rtlheader1 *)dut)->reset, 
+        ((Rtlheader1 *)dut)->io_nasti_ar_valid, 
+        ((Rtlheader1 *)dut)->io_nasti_ar_bits_addr.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_ar_bits_id.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_ar_bits_size.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_ar_bits_len.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_aw_valid, 
+        ((Rtlheader1 *)dut)->io_nasti_aw_bits_addr.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_aw_bits_id.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_aw_bits_size.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_aw_bits_len.as_single_word(), 
+        ((Rtlheader1 *)dut)->io_nasti_w_valid, 
+        ((Rtlheader1 *)dut)->io_nasti_w_bits_strb.as_single_word(), 
+        &((Rtlheader1 *)dut)->io_nasti_w_bits_data, 
+        ((Rtlheader1 *)dut)->io_nasti_w_bits_last, 
+        ((Rtlheader1 *)dut)->io_nasti_r_ready, 
+        ((Rtlheader1 *)dut)->io_nasti_b_ready 
+        );
+    }
+    else
+    {
+        AXI_tick(
+        ((Rtlheader *)dut)->reset, 
+        ((Rtlheader *)dut)->io_nasti_ar_valid, 
+        ((Rtlheader *)dut)->io_nasti_ar_bits_addr.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_ar_bits_id.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_ar_bits_size.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_ar_bits_len.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_aw_valid, 
+        ((Rtlheader *)dut)->io_nasti_aw_bits_addr.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_aw_bits_id.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_aw_bits_size.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_aw_bits_len.as_single_word(), 
+        ((Rtlheader *)dut)->io_nasti_w_valid, 
+        ((Rtlheader *)dut)->io_nasti_w_bits_strb.as_single_word(), 
+        &((Rtlheader *)dut)->io_nasti_w_bits_data, 
+        ((Rtlheader *)dut)->io_nasti_w_bits_last, 
+        ((Rtlheader *)dut)->io_nasti_r_ready, 
+        ((Rtlheader *)dut)->io_nasti_b_ready 
+        );
+    }
 }

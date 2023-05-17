@@ -23,6 +23,7 @@
 
 //Header file will be changed to the RTL C-model under test
 #include "rtl_header_riscv_mini.h"
+#include "rtl_header_riscv_mini1.h"
 #include <sst/core/link.h>
 #include <sst/core/clock.h>
 #include <sst/core/eli/elementinfo.h>
@@ -31,6 +32,7 @@
 #include "rtlreadev.h"
 #include "rtlwriteev.h"
 #include "rtlmemmgr.h"
+#include "rtl_header_parent.h"
 
 #undef UNLIKELY
 #include "AXI_port.h"
@@ -146,6 +148,18 @@ private:
     //RTL Clock frequency of execution and maximum Cycles/clockTicks for which RTL simulation will run.
     std::string RTLClk;
 	SST::Cycle_t maxCycles;
+    int rtlheaderID;
+ //   bool isPageTableReceived;
+    bool isFirst;
+    int in_temp_inp_size;
+    int in_temp_count;
+
+    int temp_inp_size;
+    int temp_count;
+
+    int mcnt;
+    int mcnt1;
+    uint64_t main_time;
 
     //SST Links
     SST::Link* ArielRtlLink;
@@ -165,7 +179,7 @@ private:
     bool update_registers, verbose, done_reset, sim_done;
     bool update_inp, update_ctrl, update_eval_args;
     RTLEvent ev;
-    Rtlheader *dut;
+    mRtlComponentParent *dut;
     AXITop *axiport;
     ArielComponent::ArielRtlEvent* RtlAckEv;
     uint64_t inp_VA, ctrl_VA, updated_rtl_params_VA, inp_PA, ctrl_PA, updated_rtl_params_PA;
@@ -235,6 +249,9 @@ private:
     uint64_t curr_ar_id;
 
     unsigned int mCycles;
+    uint64_t mBaseAddr;
+
+
 };
 
  } //namespace RtlComponent 
